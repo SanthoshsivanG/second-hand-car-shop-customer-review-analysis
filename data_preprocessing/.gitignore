@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+raw_data/*.csv
+processed_data/*.csv
+!raw_data/.gitkeep
+!processed_data/.gitkeep
+journey_classification/model/*.pt
+journey_classification/model/*.json
+topic_modeling/output/*.json
+!topic_modeling/output/.gitkeep

@@ -1,0 +1,116 @@
+#!/bin/bash
+set -euo pipefail
+
+FQDN='${fqdn}'
+APP_DIR='${app_dir}'
+
+dnf update -y
+# AL2023 ships curl-minimal; do not install full "curl" (package conflict).
+dnf install -y docker git
+
+systemctl enable --now docker
+usermod -aG docker ec2-user
+usermod -aG docker ssm-user || true
+
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# Install Caddy binary (avoid Cloudsmith RPM GPG issues on AL2023)
+curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /usr/local/bin/caddy
+chmod +x /usr/local/bin/caddy
+id -u caddy >/dev/null 2>&1 || useradd --system --home /var/lib/caddy --shell /usr/sbin/nologin caddy
+mkdir -p /etc/caddy /var/lib/caddy /var/log/caddy
+chown -R caddy:caddy /var/lib/caddy /var/log/caddy
+
+cat > /etc/systemd/system/caddy.service <<'EOF'
+[Unit]
+Description=Caddy
+Documentation=https://caddyserver.com/docs/
+After=network.target network-online.target
+Requires=network-online.target
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+mkdir -p "$${APP_DIR}/data/processed" "$${APP_DIR}/data/topics" "$${APP_DIR}/app"
+cat > /etc/caddy/Caddyfile <<EOF
+$${FQDN} {
+	encode gzip
+	reverse_proxy localhost:3000
+}
+EOF
+chown root:caddy /etc/caddy/Caddyfile
+chmod 644 /etc/caddy/Caddyfile
+
+systemctl daemon-reload
+systemctl enable --now caddy
+
+# Placeholder compose; upload real app + data after apply (via SSM).
+cat > "$${APP_DIR}/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: review
+      POSTGRES_PASSWORD: review
+      POSTGRES_DB: review_dashboard
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./app/backend/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U review -d review_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./app/backend
+    environment:
+      REVIEWS_CSV: /data/processed/reviews_processed.csv
+      TOPICS_JSON: /data/topics/topics_by_journey.json
+      DATABASE_URL: postgresql://review:review@db:5432/review_dashboard
+    env_file:
+      - ./app/.env
+    volumes:
+      - ./data/processed:/data/processed:ro
+      - ./data/topics:/data/topics:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./app/frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+EOF
+
+cat > "$${APP_DIR}/app/.env.example" <<'EOF'
+GEMINI_API_KEY=replace_me
+EOF
+
+chown -R ec2-user:ec2-user "$${APP_DIR}"
+chmod -R a+rX "$${APP_DIR}" || true
+echo "Bootstrap complete for $${FQDN}" > /var/log/review-dashboard-bootstrap.log

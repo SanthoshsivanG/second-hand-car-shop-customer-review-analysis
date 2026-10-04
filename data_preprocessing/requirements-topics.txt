@@ -1,0 +1,6 @@
+# Extra deps for BERTopic journey topic modeling + Gemini naming
+-r requirements.txt
+python-dotenv>=1.0.0,<2
+bertopic>=0.16.0,<0.17
+sentence-transformers>=3.0.0,<4
+google-generativeai>=0.8.0,<0.9

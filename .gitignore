@@ -1,0 +1,51 @@
+# OS / editor
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# Secrets
+.env
+**/.env
+!.env.example
+!**/.env.example
+
+# Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Terraform / infra local state
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/crash.log
+infra/crash.*.log
+infra/terraform.tfvars
+infra/*.auto.tfvars
+infra/*.auto.tfvars.json
+infra/override.tf
+infra/override.tf.json
+
+# Review datasets (keep only the small committed sample)
+*.csv
+!data_preprocessing/sample_data/sample_reviews.csv
+
+# Scratch / one-off labeling work at repo root
+_label_work_reviews.txt
+_label_reviews.py
+fix_journey_labels.py
+
+# Misc
+*.log
+.coverage
+htmlcov/
